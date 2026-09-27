@@ -141,6 +141,12 @@ if (-not $SecurityGroupId -or $SecurityGroupId -eq "None") {
         --vpc-id $VpcId `
         --query "GroupId" `
         --output text
+aws ec2 create-tags `
+    --region $Region `
+    --resources $SecurityGroupId `
+    --tags `
+        "Key=Name,Value=$SecurityGroupName" `
+        "Key=Lab,Value=$LabName" | Out-Null
 
     # SSH from administrator workstation only
     aws ec2 authorize-security-group-ingress `
