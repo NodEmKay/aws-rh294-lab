@@ -14,13 +14,24 @@ param(
     [string]$AmiId = "ami-00adafae70b8029d8",
     [string]$InstanceType = "t2.medium",
     [string]$KeyName = "ansiblelab1",
-    [string]$AllowedSshCidr = ""
+    [string]$AllowedSshCidr = "",
+    [string]$PrivateKeyPath = ""
 )
 
 $ErrorActionPreference = "Stop"
 $PSNativeCommandUseErrorActionPreference = $true
 
 $LabName = "aws-rh294-lab"
+
+if ([string]::IsNullOrWhiteSpace($PrivateKeyPath)) {
+    throw "PrivateKeyPath is required. Example: -PrivateKeyPath `$HOME\.ssh\my-key.pem"
+}
+
+$PrivateKeyPath = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($PrivateKeyPath)
+
+if (-not (Test-Path -LiteralPath $PrivateKeyPath -PathType Leaf)) {
+    throw "Private SSH key not found: $PrivateKeyPath"
+}
 
 Write-Host "AWS RH294 Lab"
 Write-Host "Region:        $Region"
@@ -399,3 +410,111 @@ Write-Host "  $HostsFile"
 Write-Host ""
 
 Get-Content $HostsFile
+
+
+
+
+# ------------------------------------------------------------
+# Prepare workstation for bootstrap
+# ------------------------------------------------------------
+
+Write-Host ""
+Write-Host "Preparing workstation for bootstrap..."
+
+$WorkstationId = $InstanceResults["workstation"]
+
+$WorkstationPublicIp = aws ec2 describe-instances `
+    --region $Region `
+    --instance-ids $WorkstationId `
+    --query "Reservations[0].Instances[0].PublicIpAddress" `
+    --output text
+
+if (-not $WorkstationPublicIp -or $WorkstationPublicIp -eq "None") {
+    throw "Unable to determine workstation public IP."
+}
+
+Write-Host "Waiting for SSH on $WorkstationPublicIp..."
+
+$SshReady = $false
+
+for ($Attempt = 1; $Attempt -le 30; $Attempt++) {
+
+    & ssh `
+        -i $PrivateKeyPath `
+        -o BatchMode=yes `
+        -o StrictHostKeyChecking=accept-new `
+        -o ConnectTimeout=5 `
+        "ec2-user@$WorkstationPublicIp" `
+        "echo ready" 2>$null
+
+    if ($LASTEXITCODE -eq 0) {
+        $SshReady = $true
+        break
+    }
+
+    Write-Host "  Waiting for SSH ($Attempt/30)..."
+    Start-Sleep -Seconds 10
+}
+
+if (-not $SshReady) {
+    throw "Workstation SSH did not become available."
+}
+
+Write-Host "Workstation SSH: ready"
+
+# Staging area survives independently of the Git clone.
+& ssh `
+    -i $PrivateKeyPath `
+    -o StrictHostKeyChecking=accept-new `
+    "ec2-user@$WorkstationPublicIp" `
+    "mkdir -p ~/.ssh ~/.rh294 && chmod 700 ~/.ssh ~/.rh294"
+
+if ($LASTEXITCODE -ne 0) {
+    throw "Unable to create workstation staging directories."
+}
+
+Write-Host "Transferring lab SSH key..."
+
+& scp `
+    -i $PrivateKeyPath `
+    -o StrictHostKeyChecking=accept-new `
+    $PrivateKeyPath `
+    "ec2-user@${WorkstationPublicIp}:/home/ec2-user/.ssh/ansiblelab.pem"
+
+if ($LASTEXITCODE -ne 0) {
+    throw "Unable to transfer SSH private key."
+}
+
+Write-Host "Transferring dynamic host mappings..."
+
+& scp `
+    -i $PrivateKeyPath `
+    -o StrictHostKeyChecking=accept-new `
+    $HostsFile `
+    "ec2-user@${WorkstationPublicIp}:/home/ec2-user/.rh294/lab-hosts.txt"
+
+if ($LASTEXITCODE -ne 0) {
+    throw "Unable to transfer lab host mappings."
+}
+
+& ssh `
+    -i $PrivateKeyPath `
+    -o StrictHostKeyChecking=accept-new `
+    "ec2-user@$WorkstationPublicIp" `
+    "chmod 600 ~/.ssh/ansiblelab.pem ~/.rh294/lab-hosts.txt"
+
+if ($LASTEXITCODE -ne 0) {
+    throw "Unable to secure transferred files."
+}
+
+Write-Host ""
+Write-Host "============================================================"
+Write-Host "AWS RH294 INFRASTRUCTURE READY"
+Write-Host "============================================================"
+Write-Host ""
+Write-Host "Workstation public IP: $WorkstationPublicIp"
+Write-Host ""
+Write-Host "Connect:"
+Write-Host "  ssh -i `"$PrivateKeyPath`" ec2-user@$WorkstationPublicIp"
+Write-Host ""
+Write-Host "Then clone the repository and run bootstrap."

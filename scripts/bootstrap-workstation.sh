@@ -27,6 +27,11 @@ CUSTOM_EE="localhost/rh294-ee:1.0"
 
 EE_DIR="$PROJECT_DIR/execution-environment"
 LAB_HOSTS_FILE="$PROJECT_DIR/scripts/lab-hosts.txt"
+STAGED_HOSTS_FILE="$HOME/.rh294/lab-hosts.txt"
+
+if [[ ! -f "$LAB_HOSTS_FILE" && -f "$STAGED_HOSTS_FILE" ]]; then
+    cp "$STAGED_HOSTS_FILE" "$LAB_HOSTS_FILE"
+fi
 INVENTORY_FILE="$PROJECT_DIR/inventory"
 
 echo "AWS AU294 / RH294 workstation bootstrap"
