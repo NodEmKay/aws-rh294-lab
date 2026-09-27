@@ -218,3 +218,27 @@ else
     echo "No generated lab-hosts.txt found."
     echo "Keeping existing /etc/hosts mappings."
 fi
+
+# ------------------------------------------------------------
+# Validate Ansible inventory
+# ------------------------------------------------------------
+
+INVENTORY_FILE="$PROJECT_DIR/inventory"
+
+echo
+echo "Checking Ansible inventory..."
+
+if [[ ! -f "$INVENTORY_FILE" ]]; then
+    echo "ERROR: Inventory not found: $INVENTORY_FILE"
+    exit 1
+fi
+
+for HOST in servera.lab.com serverb.lab.com serverc.lab.com serverd.lab.com; do
+    if ! grep -Fxq "$HOST" "$INVENTORY_FILE"; then
+        echo "ERROR: $HOST is missing from inventory."
+        exit 1
+    fi
+done
+
+echo "Inventory: present"
+echo "Managed nodes: servera, serverb, serverc, serverd"
