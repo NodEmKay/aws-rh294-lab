@@ -1,0 +1,7 @@
+---
+- name: Configure RH294 managed nodes
+  hosts: all
+  become: true
+
+  roles:
+    - common

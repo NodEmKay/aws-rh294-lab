@@ -1,0 +1,13 @@
+---
+- name: Gather operating system information
+  ansible.builtin.debug:
+    msg: "Managing {{ ansible_facts.distribution }} {{ ansible_facts.distribution_version }}"
+
+- name: Ensure required baseline packages are installed
+  ansible.builtin.package:
+    name:
+      - vim-enhanced
+      - bash-completion
+      - tar
+      - gzip
+    state: present
