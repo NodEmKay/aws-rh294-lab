@@ -18,6 +18,7 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+$PSNativeCommandUseErrorActionPreference = $true
 
 $LabName = "aws-rh294-lab"
 
