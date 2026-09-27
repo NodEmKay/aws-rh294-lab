@@ -439,15 +439,27 @@ $SshReady = $false
 
 for ($Attempt = 1; $Attempt -le 30; $Attempt++) {
 
-    & ssh `
-        -i $PrivateKeyPath `
-        -o BatchMode=yes `
-        -o StrictHostKeyChecking=accept-new `
-        -o ConnectTimeout=5 `
-        "ec2-user@$WorkstationPublicIp" `
-        "echo ready" 2>$null
+    # SSH may return 255 while the new EC2 instance is still booting.
+    # Temporarily disable native-command error promotion so we can retry.
+    $OldNativePreference = $PSNativeCommandUseErrorActionPreference
+    $PSNativeCommandUseErrorActionPreference = $false
 
-    if ($LASTEXITCODE -eq 0) {
+    try {
+        & ssh `
+            -i $PrivateKeyPath `
+            -o BatchMode=yes `
+            -o StrictHostKeyChecking=accept-new `
+            -o ConnectTimeout=5 `
+            "ec2-user@$WorkstationPublicIp" `
+            "echo ready" 2>$null
+
+        $SshExitCode = $LASTEXITCODE
+    }
+    finally {
+        $PSNativeCommandUseErrorActionPreference = $OldNativePreference
+    }
+
+    if ($SshExitCode -eq 0) {
         $SshReady = $true
         break
     }
@@ -455,7 +467,6 @@ for ($Attempt = 1; $Attempt -le 30; $Attempt++) {
     Write-Host "  Waiting for SSH ($Attempt/30)..."
     Start-Sleep -Seconds 10
 }
-
 if (-not $SshReady) {
     throw "Workstation SSH did not become available."
 }
@@ -518,3 +529,4 @@ Write-Host "Connect:"
 Write-Host "  ssh -i `"$PrivateKeyPath`" ec2-user@$WorkstationPublicIp"
 Write-Host ""
 Write-Host "Then clone the repository and run bootstrap."
+
