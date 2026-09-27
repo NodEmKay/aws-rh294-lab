@@ -20,6 +20,7 @@ for HOST in servera serverb serverc serverd; do
 
     DISK_COUNT=$(ssh -i "$SSH_KEY" \
         -o BatchMode=yes \
+        -o StrictHostKeyChecking=accept-new \
         "ec2-user@$HOST" \
         "lsblk -dn -o TYPE | grep -c '^disk$'")
 
@@ -39,6 +40,7 @@ for HOST in servera serverb serverc serverd; do
 
     ssh -i "$SSH_KEY" \
         -o BatchMode=yes \
+        -o StrictHostKeyChecking=accept-new \
         "ec2-user@$HOST" \
         'lsblk -o NAME,SIZE,TYPE,FSTYPE,MOUNTPOINTS'
 done
