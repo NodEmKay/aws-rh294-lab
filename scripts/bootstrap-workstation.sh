@@ -185,3 +185,36 @@ fi
 
 echo
 echo "Nested execution environment ready."
+
+# ------------------------------------------------------------
+# Configure dynamic lab host mappings
+# ------------------------------------------------------------
+
+LAB_HOSTS_FILE="$PROJECT_DIR/scripts/lab-hosts.txt"
+
+echo
+echo "Checking dynamic lab host mappings..."
+
+if [[ -f "$LAB_HOSTS_FILE" ]]; then
+
+    echo "Lab host mapping file found."
+
+    TEMP_HOSTS=$(mktemp)
+
+    # Preserve all non-RH294 entries.
+    grep -Ev '[[:space:]](workstation|servera|serverb|serverc|serverd)(\.lab\.com)?([[:space:]]|$)' \
+        /etc/hosts > "$TEMP_HOSTS"
+
+    # Append the current AWS lab mappings.
+    echo >> "$TEMP_HOSTS"
+    cat "$LAB_HOSTS_FILE" >> "$TEMP_HOSTS"
+
+    sudo cp "$TEMP_HOSTS" /etc/hosts
+    rm -f "$TEMP_HOSTS"
+
+    echo "Lab host mappings updated."
+
+else
+    echo "No generated lab-hosts.txt found."
+    echo "Keeping existing /etc/hosts mappings."
+fi
