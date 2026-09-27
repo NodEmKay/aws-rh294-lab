@@ -1,0 +1,12 @@
+FROM registry.redhat.io/ansible-automation-platform-25/ee-supported-rhel8:latest
+
+USER root
+
+COPY requirements.yml /tmp/requirements.yml
+
+RUN ansible-galaxy collection install \
+    -r /tmp/requirements.yml \
+    -p /usr/share/ansible/collections \
+    && rm -f /tmp/requirements.yml
+
+USER 1000

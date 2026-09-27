@@ -1,139 +1,188 @@
 #!/bin/bash
 set -euo pipefail
 
-# AWS RH294 workstation bootstrap
+# ============================================================
+# AWS AU294 / RH294 Workstation Bootstrap
+# ============================================================
+# Run as ec2-user on workstation.lab.com.
 #
-# Run on workstation.lab.com as ec2-user.
-# This script prepares the Ansible development environment.
+# Required:
+#   - Repository cloned to ~/ansible-projects/aws-rh294
+#   - EC2 SSH private key at ~/.ssh/ansiblelab.pem
+#   - scripts/lab-hosts.txt transferred by provisioning script
+#   - Authentication to registry.redhat.io
 #
-# Secrets are NOT stored here:
-# - EC2 private SSH key
-# - Red Hat registry credentials
-# - AWS credentials
+# No credentials or private keys are stored in Git.
+# ============================================================
 
-PROJECT_DIR="$HOME/ansible-projects/aws-rh294"
+PROJECT_DIR="${PROJECT_DIR:-$HOME/ansible-projects/aws-rh294}"
+SSH_KEY="${SSH_KEY:-$HOME/.ssh/ansiblelab.pem}"
+
 DEV_CONTAINER="ansible-dev"
+CONTAINER_STORAGE="ansible-dev-tools-container-storage"
 
 DEVTOOLS_IMAGE="registry.redhat.io/ansible-automation-platform-25/ansible-dev-tools-rhel8:latest"
 SUPPORTED_EE="registry.redhat.io/ansible-automation-platform-25/ee-supported-rhel8:latest"
 CUSTOM_EE="localhost/rh294-ee:1.0"
 
-SSH_KEY="$HOME/.ssh/ansiblelab1.pem"
-CONTAINER_STORAGE="ansible-dev-tools-container-storage"
+EE_DIR="$PROJECT_DIR/execution-environment"
+LAB_HOSTS_FILE="$PROJECT_DIR/scripts/lab-hosts.txt"
+INVENTORY_FILE="$PROJECT_DIR/inventory"
 
-echo "AWS RH294 workstation bootstrap"
-echo "================================"
-echo "Project:       $PROJECT_DIR"
-echo "Dev container: $DEV_CONTAINER"
-echo "Custom EE:     $CUSTOM_EE"
-
+echo "AWS AU294 / RH294 workstation bootstrap"
+echo "========================================"
+echo "Project: $PROJECT_DIR"
+echo "SSH key: $SSH_KEY"
 echo
+
+# ------------------------------------------------------------
+# Prerequisites
+# ------------------------------------------------------------
+
 echo "Checking prerequisites..."
 
-# Confirm RHEL
-if [[ ! -f /etc/redhat-release ]]; then
-    echo "ERROR: This bootstrap expects a RHEL workstation."
+[[ -f /etc/redhat-release ]] || {
+    echo "ERROR: RHEL workstation required."
     exit 1
-fi
+}
 
-echo "OS: $(cat /etc/redhat-release)"
-
-# Check Podman
-if ! command -v podman >/dev/null 2>&1; then
+command -v podman >/dev/null 2>&1 || {
     echo "ERROR: Podman is not installed."
     exit 1
-fi
+}
 
-echo "Podman: $(podman --version)"
-
-# Check EC2 SSH private key
-if [[ ! -f "$SSH_KEY" ]]; then
-    echo "ERROR: SSH key not found: $SSH_KEY"
-    echo "Copy ansiblelab1.pem securely to ~/.ssh before continuing."
+[[ -d "$PROJECT_DIR" ]] || {
+    echo "ERROR: Project not found: $PROJECT_DIR"
     exit 1
-fi
+}
 
-# Enforce private-key permissions
+[[ -f "$SSH_KEY" ]] || {
+    echo "ERROR: SSH private key not found: $SSH_KEY"
+    exit 1
+}
+
+[[ -f "$LAB_HOSTS_FILE" ]] || {
+    echo "ERROR: Dynamic host mapping file not found:"
+    echo "       $LAB_HOSTS_FILE"
+    echo
+    echo "The AWS provisioning script must transfer this file."
+    exit 1
+}
+
+[[ -f "$EE_DIR/Containerfile" ]] || {
+    echo "ERROR: Execution-environment Containerfile missing."
+    exit 1
+}
+
+[[ -f "$EE_DIR/requirements.yml" ]] || {
+    echo "ERROR: execution-environment/requirements.yml missing."
+    exit 1
+}
+
 chmod 600 "$SSH_KEY"
 
-echo "SSH key: present"
+echo "OS:      $(cat /etc/redhat-release)"
+echo "Podman:  $(podman --version)"
+echo "Project: OK"
+echo "SSH key: OK"
 
-# Check project directory
-if [[ ! -d "$PROJECT_DIR" ]]; then
-    echo "ERROR: Project directory not found: $PROJECT_DIR"
-    echo "Clone the GitHub repository first."
-    exit 1
-fi
-
-echo "Project directory: present"
+# ------------------------------------------------------------
+# Dynamic /etc/hosts
+# ------------------------------------------------------------
 
 echo
-echo "Prerequisite checks passed."
+echo "Configuring lab host mappings..."
+
+TEMP_HOSTS=$(mktemp)
+
+grep -Ev \
+    '[[:space:]](workstation|servera|serverb|serverc|serverd)(\.lab\.com)?([[:space:]]|$)' \
+    /etc/hosts > "$TEMP_HOSTS" || true
+
+echo >> "$TEMP_HOSTS"
+cat "$LAB_HOSTS_FILE" >> "$TEMP_HOSTS"
+
+sudo cp "$TEMP_HOSTS" /etc/hosts
+rm -f "$TEMP_HOSTS"
+
+for HOST in workstation servera serverb serverc serverd; do
+    getent hosts "$HOST.lab.com" >/dev/null || {
+        echo "ERROR: Cannot resolve $HOST.lab.com"
+        exit 1
+    }
+done
+
+echo "Host mappings: OK"
+
+# ------------------------------------------------------------
+# Red Hat container images
+# ------------------------------------------------------------
 
 echo
-echo "Checking container images..."
+echo "Checking Red Hat container images..."
 
-# Dev Tools image
-if podman image exists "$DEVTOOLS_IMAGE"; then
-    echo "Dev Tools image: present"
-else
-    echo "Dev Tools image: missing"
-    echo "Authenticate first with:"
-    echo "  podman login registry.redhat.io"
-    echo "Then rerun this bootstrap."
-    exit 1
+if ! podman image exists "$DEVTOOLS_IMAGE"; then
+    echo "Pulling Ansible Development Tools..."
+    podman pull "$DEVTOOLS_IMAGE"
 fi
 
-# Supported EE base image
-if podman image exists "$SUPPORTED_EE"; then
-    echo "Supported EE: present"
-else
-    echo "Supported EE: missing"
-    echo "Authenticate first with:"
-    echo "  podman login registry.redhat.io"
-    echo "Then pull:"
-    echo "  podman pull $SUPPORTED_EE"
-    echo "Then rerun this bootstrap."
-    exit 1
+if ! podman image exists "$SUPPORTED_EE"; then
+    echo "Pulling supported execution environment..."
+    podman pull "$SUPPORTED_EE"
 fi
 
-# Custom RH294 execution environment
-if podman image exists "$CUSTOM_EE"; then
-    echo "Custom RH294 EE: present"
-else
-    echo "Custom RH294 EE: missing"
-    echo "Restore the saved rh294-ee-1.0.tar or rebuild it before continuing."
-    exit 1
-fi
+echo "Red Hat images: OK"
+
+# ------------------------------------------------------------
+# Build custom EE reproducibly
+# ------------------------------------------------------------
 
 echo
-echo "Container image checks passed."
+echo "Checking custom RH294 execution environment..."
+
+if ! podman image exists "$CUSTOM_EE"; then
+
+    echo "Building $CUSTOM_EE from Git source..."
+
+    podman build \
+        -t "$CUSTOM_EE" \
+        -f "$EE_DIR/Containerfile" \
+        "$EE_DIR"
+fi
+
+podman image exists "$CUSTOM_EE" || {
+    echo "ERROR: Custom EE build failed."
+    exit 1
+}
+
+echo "Custom EE: OK"
+
+# ------------------------------------------------------------
+# Persistent nested Podman storage
+# ------------------------------------------------------------
+
+if ! podman volume exists "$CONTAINER_STORAGE"; then
+    podman volume create "$CONTAINER_STORAGE" >/dev/null
+fi
+
+# ------------------------------------------------------------
+# Development container
+# ------------------------------------------------------------
 
 echo
 echo "Checking Ansible development container..."
 
-# Create persistent nested Podman storage if needed
-if ! podman volume exists "$CONTAINER_STORAGE"; then
-    echo "Creating persistent container storage..."
-    podman volume create "$CONTAINER_STORAGE" >/dev/null
-fi
-
-# Check whether ansible-dev already exists
 if podman container exists "$DEV_CONTAINER"; then
 
-    echo "Development container already exists."
-
-    CONTAINER_STATE=$(podman inspect \
+    STATE=$(podman inspect \
         --format '{{.State.Status}}' \
         "$DEV_CONTAINER")
 
-    if [[ "$CONTAINER_STATE" != "running" ]]; then
-        echo "Starting development container..."
+    if [[ "$STATE" != "running" ]]; then
         podman start "$DEV_CONTAINER" >/dev/null
     fi
 
 else
-    echo "Creating development container..."
 
     podman run -dit \
         --name "$DEV_CONTAINER" \
@@ -155,90 +204,91 @@ else
         /bin/bash
 fi
 
-echo
-echo "Development container status:"
-podman ps \
-    --filter "name=$DEV_CONTAINER" \
-    --format '  {{.Names}}  {{.Status}}'
+echo "Development container: OK"
+
+# ------------------------------------------------------------
+# Import custom EE into nested Podman
+# ------------------------------------------------------------
 
 echo
-echo "Development container ready."
+echo "Checking nested execution environment..."
 
-echo
-echo "Checking custom EE inside development container..."
-
-if podman exec "$DEV_CONTAINER" \
+if ! podman exec "$DEV_CONTAINER" \
     podman image exists "$CUSTOM_EE"; then
 
-    echo "Nested custom RH294 EE: present"
+    echo "Transferring custom EE into development container..."
 
-else
-    echo "ERROR: Custom RH294 EE is missing from nested Podman."
-    echo
-    echo "Restore the saved image to the host first:"
-    echo "  podman load -i ~/rh294-ee-1.0.tar"
-    echo
-    echo "Then load it into the development container:"
-    echo "  podman exec -i $DEV_CONTAINER podman load < ~/rh294-ee-1.0.tar"
-    exit 1
+    podman save "$CUSTOM_EE" | \
+        podman exec -i "$DEV_CONTAINER" podman load
 fi
 
-echo
-echo "Nested execution environment ready."
-
-# ------------------------------------------------------------
-# Configure dynamic lab host mappings
-# ------------------------------------------------------------
-
-LAB_HOSTS_FILE="$PROJECT_DIR/scripts/lab-hosts.txt"
-
-echo
-echo "Checking dynamic lab host mappings..."
-
-if [[ -f "$LAB_HOSTS_FILE" ]]; then
-
-    echo "Lab host mapping file found."
-
-    TEMP_HOSTS=$(mktemp)
-
-    # Preserve all non-RH294 entries.
-    grep -Ev '[[:space:]](workstation|servera|serverb|serverc|serverd)(\.lab\.com)?([[:space:]]|$)' \
-        /etc/hosts > "$TEMP_HOSTS"
-
-    # Append the current AWS lab mappings.
-    echo >> "$TEMP_HOSTS"
-    cat "$LAB_HOSTS_FILE" >> "$TEMP_HOSTS"
-
-    sudo cp "$TEMP_HOSTS" /etc/hosts
-    rm -f "$TEMP_HOSTS"
-
-    echo "Lab host mappings updated."
-
-else
-    echo "No generated lab-hosts.txt found."
-    echo "Keeping existing /etc/hosts mappings."
-fi
-
-# ------------------------------------------------------------
-# Validate Ansible inventory
-# ------------------------------------------------------------
-
-INVENTORY_FILE="$PROJECT_DIR/inventory"
-
-echo
-echo "Checking Ansible inventory..."
-
-if [[ ! -f "$INVENTORY_FILE" ]]; then
-    echo "ERROR: Inventory not found: $INVENTORY_FILE"
-    exit 1
-fi
-
-for HOST in servera.lab.com serverb.lab.com serverc.lab.com serverd.lab.com; do
-    if ! grep -Fxq "$HOST" "$INVENTORY_FILE"; then
-        echo "ERROR: $HOST is missing from inventory."
+podman exec "$DEV_CONTAINER" \
+    podman image exists "$CUSTOM_EE" || {
+        echo "ERROR: Custom EE unavailable inside development container."
         exit 1
-    fi
+    }
+
+echo "Nested custom EE: OK"
+
+# ------------------------------------------------------------
+# Inventory
+# ------------------------------------------------------------
+
+echo
+echo "Validating Ansible inventory..."
+
+[[ -f "$INVENTORY_FILE" ]] || {
+    echo "ERROR: Inventory missing: $INVENTORY_FILE"
+    exit 1
+}
+
+for HOST in \
+    servera.lab.com \
+    serverb.lab.com \
+    serverc.lab.com \
+    serverd.lab.com
+do
+    grep -Fxq "$HOST" "$INVENTORY_FILE" || {
+        echo "ERROR: $HOST missing from inventory."
+        exit 1
+    }
 done
 
-echo "Inventory: present"
-echo "Managed nodes: servera, serverb, serverc, serverd"
+echo "Inventory: OK"
+
+# ------------------------------------------------------------
+# SSH connectivity
+# ------------------------------------------------------------
+
+echo
+echo "Testing SSH connectivity..."
+
+for HOST in servera serverb serverc serverd; do
+
+    ssh \
+        -i "$SSH_KEY" \
+        -o BatchMode=yes \
+        -o StrictHostKeyChecking=accept-new \
+        -o ConnectTimeout=10 \
+        "ec2-user@$HOST" \
+        true || {
+            echo "ERROR: SSH failed: $HOST"
+            exit 1
+        }
+
+    echo "  $HOST: OK"
+done
+
+# ------------------------------------------------------------
+# Finished
+# ------------------------------------------------------------
+
+echo
+echo "========================================"
+echo "WORKSTATION BOOTSTRAP COMPLETE"
+echo "========================================"
+echo
+echo "Enter the development container with:"
+echo
+echo "  podman exec -it ansible-dev bash"
+echo
