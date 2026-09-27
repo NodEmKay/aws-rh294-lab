@@ -1,0 +1,7 @@
+[prod]
+servera.lab.com
+serverb.lab.com
+
+[test]
+serverc.lab.com
+serverd.lab.com

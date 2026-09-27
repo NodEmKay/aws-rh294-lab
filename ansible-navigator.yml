@@ -1,0 +1,10 @@
+---
+ansible-navigator:
+  execution-environment:
+    container-engine: podman
+    enabled: true
+    image: localhost/rh294-ee:1.0
+    pull:
+      policy: missing
+
+  mode: stdout

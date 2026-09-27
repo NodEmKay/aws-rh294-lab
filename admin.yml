@@ -1,0 +1,36 @@
+---
+- name: Prepare research VG on servera and serverb
+  hosts:
+    - servera.lab.com
+    - serverb.lab.com
+  become: true
+
+  tasks:
+    - name: Create 900 MiB partition on lab disk
+      community.general.parted:
+        device: /dev/xvdb
+        number: 1
+        state: present
+        part_end: 900MiB
+
+    - name: Create research volume group
+      community.general.lvg:
+        vg: research
+        pvs: /dev/xvdb1
+
+- name: Prepare research VG on serverc
+  hosts: serverc.lab.com
+  become: true
+
+  tasks:
+    - name: Create 500 MiB partition on lab disk
+      community.general.parted:
+        device: /dev/xvdb
+        number: 1
+        state: present
+        part_end: 500MiB
+
+    - name: Create research volume group
+      community.general.lvg:
+        vg: research
+        pvs: /dev/xvdb1

@@ -1,0 +1,14 @@
+---
+- name: Test privilege escalation
+  hosts: all
+  gather_facts: false
+
+  tasks:
+    - name: Verify root privilege
+      ansible.builtin.command: whoami
+      register: whoami_result
+      changed_when: false
+
+    - name: Display effective user
+      ansible.builtin.debug:
+        var: whoami_result.stdout

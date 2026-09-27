@@ -1,0 +1,38 @@
+# SSH / credentials / secrets
+*.pem
+*.key
+.ssh/
+.env
+auth.json
+*.token
+*.password
+*.vault_pass
+secret.txt
+
+# Container images / archives
+*.tar
+*.tar.gz
+
+# Ansible Navigator artifacts
+artifacts/
+*.json-artifact
+
+# Logs / temporary files
+*.log
+*.tmp
+*.retry
+
+# Ansible Builder generated content
+context/
+_build/
+
+# Editor / OS
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Navigator artifacts created in project root
+*-artifact-*.json
+
+# Navigator runtime log
+ansible-navigator.log
