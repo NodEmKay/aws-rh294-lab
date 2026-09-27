@@ -36,3 +36,6 @@ Thumbs.db
 
 # Navigator runtime log
 ansible-navigator.log
+
+# Generated AWS lab topology
+scripts/lab-hosts.txt

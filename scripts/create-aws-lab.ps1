@@ -355,3 +355,40 @@ foreach ($Instance in $Instances) {
 Write-Host ""
 Write-Host "Infrastructure ready."
 Write-Host "Next: bootstrap workstation and generate Ansible inventory."
+
+# ------------------------------------------------------------
+# Generate dynamic lab host mappings
+# ------------------------------------------------------------
+
+Write-Host ""
+Write-Host "Generating lab host mappings..."
+
+$HostsFile = Join-Path $PSScriptRoot "lab-hosts.txt"
+$HostLines = @()
+
+foreach ($Instance in $Instances) {
+
+    $Name = $Instance.Name
+    $InstanceId = $InstanceResults[$Name]
+
+    $PrivateIp = aws ec2 describe-instances `
+        --region $Region `
+        --instance-ids $InstanceId `
+        --query "Reservations[0].Instances[0].PrivateIpAddress" `
+        --output text
+
+    if (-not $PrivateIp -or $PrivateIp -eq "None") {
+        throw "Unable to determine private IP for $Name."
+    }
+
+    $HostLines += "$PrivateIp`t$Name.lab.com $Name"
+}
+
+$HostLines | Set-Content -Path $HostsFile -Encoding ascii
+
+Write-Host ""
+Write-Host "Generated:"
+Write-Host "  $HostsFile"
+Write-Host ""
+
+Get-Content $HostsFile
