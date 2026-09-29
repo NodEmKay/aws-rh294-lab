@@ -92,6 +92,26 @@ echo "Project: OK"
 echo "SSH key: OK"
 
 # ------------------------------------------------------------
+# Persistent rootless Podman user services
+# ------------------------------------------------------------
+
+echo
+echo "Checking persistent user services..."
+
+CURRENT_USER=$(id -un)
+
+if [[ "$(loginctl show-user "$CURRENT_USER" -p Linger --value)" != "yes" ]]; then
+    sudo loginctl enable-linger "$CURRENT_USER"
+fi
+
+[[ "$(loginctl show-user "$CURRENT_USER" -p Linger --value)" == "yes" ]] || {
+    echo "ERROR: Unable to enable lingering for $CURRENT_USER."
+    exit 1
+}
+
+echo "User linger: OK"
+
+# ------------------------------------------------------------
 # Dynamic /etc/hosts
 # ------------------------------------------------------------
 
@@ -177,19 +197,8 @@ fi
 echo
 echo "Checking Ansible development container..."
 
-if podman container exists "$DEV_CONTAINER"; then
-
-    STATE=$(podman inspect \
-        --format '{{.State.Status}}' \
-        "$DEV_CONTAINER")
-
-    if [[ "$STATE" != "running" ]]; then
-        podman start "$DEV_CONTAINER" >/dev/null
-    fi
-
-else
-
-    podman run -dit \
+create_dev_container() {
+    podman run -d \
         --name "$DEV_CONTAINER" \
         --hostname ansible-dev-container \
         --user root \
@@ -206,8 +215,46 @@ else
         --volume /usr/share/zoneinfo:/usr/share/zoneinfo:ro \
         --workdir /workspaces/aws-rh294 \
         "$DEVTOOLS_IMAGE" \
-        /bin/bash
+        sleep infinity >/dev/null
+}
+
+if podman container exists "$DEV_CONTAINER"; then
+
+    DEV_ARGS=$(podman inspect \
+        --format '{{json .Args}}' \
+        "$DEV_CONTAINER")
+
+    if [[ "$DEV_ARGS" == *'"/bin/bash"'* ]]; then
+        echo "Migrating legacy development container..."
+        podman rm -f "$DEV_CONTAINER" >/dev/null
+        create_dev_container
+    else
+        STATE=$(podman inspect \
+            --format '{{.State.Status}}' \
+            "$DEV_CONTAINER")
+
+        if [[ "$STATE" != "running" ]]; then
+            podman start "$DEV_CONTAINER" >/dev/null
+        fi
+    fi
+
+else
+
+    create_dev_container
+
 fi
+
+STATE=$(podman inspect \
+    --format '{{.State.Status}}' \
+    "$DEV_CONTAINER")
+
+if [[ "$STATE" != "running" ]]; then
+    echo "ERROR: Development container is not running."
+    exit 1
+fi
+
+podman exec "$DEV_CONTAINER" \
+    sh -c 'echo development-container-ready' >/dev/null
 
 echo "Development container: OK"
 
