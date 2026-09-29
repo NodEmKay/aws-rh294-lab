@@ -300,7 +300,7 @@ for HOST in \
     serverc.lab.com \
     serverd.lab.com
 do
-    grep -Fxq "$HOST" "$INVENTORY_FILE" || {
+    grep -Eq "^${HOST}[[:space:]]" "$INVENTORY_FILE" || {
         echo "ERROR: $HOST missing from inventory."
         exit 1
     }
